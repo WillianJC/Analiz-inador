@@ -33,6 +33,35 @@ except ImportError:
     DOTENV_AVAILABLE = False
 
 
+# Patrón que cubre todos los bloques Unicode de emojis, símbolos y variantes
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F300-\U0001F5FF"  # símbolos y pictogramas
+    "\U0001F680-\U0001F6FF"  # transporte y mapas
+    "\U0001F700-\U0001F77F"  # alquimia
+    "\U0001F780-\U0001F7FF"  # geométricos extendidos
+    "\U0001F800-\U0001F8FF"  # suplemento de flechas
+    "\U0001F900-\U0001F9FF"  # símbolos suplementarios
+    "\U0001FA00-\U0001FA6F"  # símbolos de ajedrez
+    "\U0001FA70-\U0001FAFF"  # símbolos y pictogramas extendidos
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "\U0001F1E0-\U0001F1FF"  # banderas
+    "\u2600-\u2B55"          # misceláneos
+    "\u200d"                 # zero-width joiner
+    "\ufe0f"                 # selector de variante
+    "\u20e3"                 # combinación de teclas
+    "]",
+    flags=re.UNICODE,
+)
+
+
+def strip_emojis(text: str) -> str:
+    """Elimina emojis, stickers y símbolos especiales del texto."""
+    return _EMOJI_RE.sub("", text).strip()
+
+
 def extract_video_id(url: str) -> str | None:
     """Extrae el ID del video de una URL de YouTube."""
     patterns = [
@@ -497,6 +526,8 @@ class YouTubeScraperApp:
             self.root.after(0, self._scrape_error, str(exc))
 
     def _add_comment_row(self, comment: dict):
+        comment["text"] = strip_emojis(comment.get("text", ""))
+        comment["author"] = strip_emojis(comment.get("author", ""))
         self.comments_data.append(comment)
         idx = len(self.comments_data)
         tag = "odd" if idx % 2 else "even"
@@ -1059,6 +1090,19 @@ class YouTubeScraperApp:
                 conn.close()
 
                 total = len(self.comments_data)
+                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                success_details = (
+                    "Se guardo correctamente en Azure SQL.\n\n"
+                    f"Fecha/Hora: {now_str}\n"
+                    f"Plataforma: {platform_name}\n"
+                    f"Sesion ID: {session_id}\n"
+                    f"Comentarios guardados: {total}\n"
+                    f"URL: {url}\n"
+                    f"Source ID: {source_id or 'N/A'}\n"
+                    f"Subreddit: {subreddit or 'N/A'}\n"
+                    f"Orden: {sort_mode or 'N/A'}\n"
+                    f"Limite solicitado: {limit_val if limit_val is not None else 'N/A'}"
+                )
                 self.root.after(
                     0,
                     lambda: (
@@ -1066,17 +1110,30 @@ class YouTubeScraperApp:
                         self.scrape_btn.configure(state="normal"),
                         messagebox.showinfo(
                             "Guardado exitoso",
-                            f"{total} comentarios guardados en Azure SQL.\nSesión ID: {session_id}",
+                            success_details,
                         ),
                     ),
                 )
             except Exception as exc:
+                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                error_details = (
+                    "No se pudo guardar en Azure SQL.\n\n"
+                    f"Fecha/Hora: {now_str}\n"
+                    f"Plataforma: {platform_name}\n"
+                    f"Comentarios a guardar: {len(self.comments_data)}\n"
+                    f"URL: {url}\n"
+                    f"Source ID: {source_id or 'N/A'}\n"
+                    f"Subreddit: {subreddit or 'N/A'}\n"
+                    f"Orden: {sort_mode or 'N/A'}\n"
+                    f"Limite solicitado: {limit_val if limit_val is not None else 'N/A'}\n"
+                    f"Detalle tecnico: {str(exc)}"
+                )
                 self.root.after(
                     0,
-                    lambda e=str(exc): (
+                    lambda msg=error_details: (
                         self._set_status("Error al guardar en Azure SQL."),
                         self.scrape_btn.configure(state="normal"),
-                        messagebox.showerror("Error de base de datos", e),
+                        messagebox.showerror("Error de base de datos", msg),
                     ),
                 )
 
